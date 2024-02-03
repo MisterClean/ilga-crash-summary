@@ -1,0 +1,4 @@
+"senate_district","total_crashes","crashes_with_injuries","sum_injuries","sum_injuries_incapacitating","pedestrian_crashes","cyclists_crashes","hit_and_run_crashes","injuries_in_hit_and_run","total_fatalities","total_cyclist_fatalities","total_driver_fatalities","total_passenger_fatalities","total_pedestrian_fatalities","total_motorcyclist_fatalities","total_scooter_fatalities","estimated_economic_damages"
+"13",8061,1359,2069,260,34,38,2219,390,30,3,15,7,5,0,0,954497000
+"6",5228,821,1167,145,55,50,1136,182,13,0,5,4,3,1,0,502464000
+"7",1157,190,274,36,13,12,237,36,6,0,4,1,1,0,0,155202000
