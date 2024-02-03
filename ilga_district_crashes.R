@@ -67,14 +67,17 @@ crashes_with_district <- st_join(crashes_with_district, house_districts, left = 
 
 # Add a new column for economic damages
 # Source https://injuryfacts.nsc.org/all-injuries/costs/guide-to-calculating-costs/data-details/
+
 crashes_with_district <- crashes_with_district %>%
   mutate(fatality_count = ifelse(!is.na(FATALITY_VICTIM) & FATALITY_VICTIM != "", 1, 0)) %>%
+  mutate(incapacitating_injury_count = ifelse(!is.na(INJURIES_INCAPACITATING) & INJURIES_INCAPACITATING > 0, INJURIES_INCAPACITATING, 0)) %>%
+  mutate(injury_count = ifelse(!is.na(INJURIES_TOTAL) & INJURIES_TOTAL > 0, INJURIES_TOTAL, 0)) %>%
   mutate(crash_count = ifelse(!is.na(CRASH_RECORD_ID) & CRASH_RECORD_ID != "", 1, 0)) %>%
   mutate(estimated_economic_damages = 
-        11400 # property damage for 2 cars
-        + (24000 * INJURIES_TOTAL) #24k for each injury
-        + (155000 * INJURIES_INCAPACITATING) #155k for each incapacitating injury
-        + (1778000 * fatality_count)) # for each death
+           ifelse(fatality_count > 0, 12474000 * fatality_count, 
+                  ifelse(incapacitating_injury_count > 0, 1016000 * incapacitating_injury_count, 
+                         ifelse(injury_count > 0, 120000 * injury_count, 17000 * crash_count))))
+
 
 # Define the bounding box for Chicago
 chicago_bbox <- getbb("Chicago, Illinois, USA", format_out = "matrix")
@@ -332,7 +335,3 @@ dlsd_fatality_house_map <- leaflet(fatalities_on_dlsd) %>%
   setView(lng = -87.688037, lat = 41.939453, zoom = 12)
 
 dlsd_fatality_house_map  # Adjust radius as needed
-
-
-
-
