@@ -18,7 +18,7 @@ library(knitr)
 start_date <- as.Date("2019-01-01")
 end_date <- as.Date("2023-12-31")
 
-## Load crashes https://data.cityofchicago.org/Transportation/Traffic-Crashes-Crashes/85ca-t3if/about_data
+# Crash data exported from here https://data.cityofchicago.org/Transportation/Traffic-Crashes-Crashes/
 crashes <- read_csv("traffic_crashes.csv") %>%
   mutate(CRASH_DATE = mdy_hms(CRASH_DATE)) %>%
   filter(CRASH_DATE >= start_date & CRASH_DATE <= end_date)
@@ -26,7 +26,7 @@ crashes <- read_csv("traffic_crashes.csv") %>%
 # Make spatial crashes file
 crashes_sf <- st_as_sf(crashes, coords = c("LONGITUDE", "LATITUDE"), crs = 4326)
 
-## load fatalities https://data.cityofchicago.org/Transportation/Traffic-Crashes-Vision-Zero-Chicago-Traffic-Fatali/gzaz-isa6/about_data
+# Vision Zero data exported from here https://data.cityofchicago.org/Transportation/Traffic-Crashes-Vision-Zero-Chicago-Traffic-Fatali/gzaz-isa6/data
 crash_fatalities <- read_csv("crash_fatalities.csv") %>%
   mutate(CRASH_DATE = mdy_hms(Crash_Date)) %>%
   filter(CRASH_DATE >= start_date & CRASH_DATE <= end_date) %>%
@@ -76,9 +76,9 @@ crashes_with_district <- crashes_with_district %>%
   mutate(injury_count = ifelse(!is.na(INJURIES_TOTAL) & INJURIES_TOTAL > 0, INJURIES_TOTAL, 0)) %>%
   mutate(crash_count = ifelse(!is.na(CRASH_RECORD_ID) & CRASH_RECORD_ID != "", 1, 0)) %>%
   mutate(estimated_economic_damages = 
-           ifelse(fatality_count > 0, (1778000 * fatality_count) + 11400, 
-                  ifelse(incapacitating_injury_count > 0, (155000 * incapacitating_injury_count) + 11400, 
-                         ifelse(injury_count > 0, 24000 * injury_count, 11400 * crash_count))))
+           ifelse(fatality_count > 0, 12474000 * fatality_count, 
+                  ifelse(incapacitating_injury_count > 0, 1016000 * incapacitating_injury_count, 
+                         ifelse(injury_count > 0, 120000 * injury_count, 17000 * crash_count))))
 
 
 # Define the bounding box for Chicago
