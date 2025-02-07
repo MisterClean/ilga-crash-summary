@@ -1,0 +1,27 @@
+# R specific
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+# Output files
+output/maps/*.html
+output/summaries/*.csv
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Editor specific
+.vscode/
+*.swp
+*~
+
+# Large data files
+*.csv
+*.zip
+*.tar.gz
+
+# Temporary files
+*.log
+*.tmp
