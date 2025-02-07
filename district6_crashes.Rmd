@@ -337,12 +337,35 @@ district6_fatality_map
 ## Summary Statistics
 
 ```{r summary-stats}
-# Calculate and display summary statistics
-total_crashes <- sum(lakeshore_crashes$crash_count, na.rm = TRUE)
-total_fatalities <- sum(lakeshore_crashes$fatality_count, na.rm = TRUE)
+# Calculate Lake Shore Drive statistics
+lakeshore_total_crashes <- nrow(lakeshore_crashes)
+lakeshore_total_injuries <- sum(lakeshore_crashes$INJURIES_TOTAL, na.rm = TRUE)
+lakeshore_total_incap_injuries <- sum(lakeshore_crashes$INJURIES_INCAPACITATING, na.rm = TRUE)
+lakeshore_total_fatalities <- sum(!is.na(lakeshore_crashes$FATALITY_VICTIM) & lakeshore_crashes$FATALITY_VICTIM != "", na.rm = TRUE)
+
+# Calculate total district statistics
+district_total_crashes <- nrow(crashes_with_district)
+district_total_injuries <- sum(crashes_with_district$INJURIES_TOTAL, na.rm = TRUE)
+district_total_incap_injuries <- sum(crashes_with_district$INJURIES_INCAPACITATING, na.rm = TRUE)
+district_total_fatalities <- sum(!is.na(crashes_with_district$FATALITY_VICTIM) & crashes_with_district$FATALITY_VICTIM != "", na.rm = TRUE)
+
+# Calculate percentages
+pct_crashes <- (lakeshore_total_crashes / district_total_crashes) * 100
+pct_injuries <- (lakeshore_total_injuries / district_total_injuries) * 100
+pct_incap_injuries <- (lakeshore_total_incap_injuries / district_total_incap_injuries) * 100
+pct_fatalities <- (lakeshore_total_fatalities / district_total_fatalities) * 100
 
 cat("Lake Shore Drive District 6 Analysis Summary\n")
 cat("----------------------------------------\n")
-cat("Total Crashes:", total_crashes, "\n")
-cat("Total Fatalities:", total_fatalities, "\n")
+cat("Lake Shore Drive Statistics:\n")
+cat("Total Crashes:", lakeshore_total_crashes, "\n")
+cat("Total Injuries:", lakeshore_total_injuries, "\n")
+cat("Total Incapacitating Injuries:", lakeshore_total_incap_injuries, "\n")
+cat("Total Fatalities:", lakeshore_total_fatalities, "\n\n")
+
+cat("Percentage of District 6 Totals:\n")
+cat(sprintf("Crashes: %.1f%%\n", pct_crashes))
+cat(sprintf("Injuries: %.1f%%\n", pct_injuries))
+cat(sprintf("Incapacitating Injuries: %.1f%%\n", pct_incap_injuries))
+cat(sprintf("Fatalities: %.1f%%\n", pct_fatalities))
 ```
