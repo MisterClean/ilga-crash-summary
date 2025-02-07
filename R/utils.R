@@ -1,25 +1,24 @@
-# Load necessary libraries
-load_libraries <- function() {
-  library(dplyr)
-  library(readr)
-  library(purrr)
-  library(geosphere)
-  library(ggplot2)
-  library(ggmap)
-  library(magrittr)
-  library(leaflet)
-  library(sf)
-  library(osmdata)
-  library(leaflet.extras)
-  library(lubridate)
-  library(tidyr)
-  library(knitr)
-}
+# Load necessary libraries first
+library(dplyr)
+library(readr)
+library(purrr)
+library(geosphere)
+library(ggplot2)
+library(ggmap)
+library(magrittr)
+library(leaflet)
+library(sf)
+library(osmdata)
+library(leaflet.extras)
+library(lubridate)
+library(tidyr)
+library(knitr)
+library(htmlwidgets)
 
 # Constants
 ANALYSIS_START_DATE <- as.Date("2019-01-01")
-ANALYSIS_END_DATE <- as.Date("2023-12-31")
-BUFFER_DISTANCE_FT <- 750
+ANALYSIS_END_DATE <- as.Date("2025-01-01")
+BUFFER_DISTANCE_FT <- 100
 BUFFER_DISTANCE_M <- BUFFER_DISTANCE_FT * 0.3048  # Convert feet to meters
 
 # Economic damage constants (NSC estimates)
@@ -28,14 +27,15 @@ INCAPACITATING_INJURY_COST <- 155000
 INJURY_COST <- 24000
 CRASH_COST <- 11400
 
-# Chicago bounding box
+# Chicago bounding box (after osmdata is loaded)
 CHICAGO_BBOX <- getbb("Chicago, Illinois, USA", format_out = "matrix")
 
 # Shared data loading functions
 load_crash_data <- function(file_path) {
   read_csv(file_path) %>%
     mutate(CRASH_DATE = mdy_hms(CRASH_DATE)) %>%
-    filter(CRASH_DATE >= ANALYSIS_START_DATE & CRASH_DATE <= ANALYSIS_END_DATE)
+    filter(CRASH_DATE >= ANALYSIS_START_DATE & CRASH_DATE <= ANALYSIS_END_DATE) %>%
+    filter(!is.na(LONGITUDE) & !is.na(LATITUDE))
 }
 
 load_fatality_data <- function(file_path) {
