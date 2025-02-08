@@ -32,19 +32,26 @@ combined_crashes_sf <- bind_rows(crashes_sf, crash_fatalities_sf)
 Next, we'll process the senate district data and Lake Shore Drive information:
 
 ```{r process-district, message=FALSE, warning=FALSE}
-# Load senate district shapefile and filter for district 6
+# Load senate district shapefile and filter for lakefront districts
 senate_districts <- load_district_shapefile(
   "data/raw/shapefiles/senate/senate_districts.shp",
   new_name = "senate_district"
 )
+lakefront_districts <- senate_districts %>%
+  filter(senate_district %in% c("6", "7", "13"))
+
 district_6 <- senate_districts %>%
   filter(senate_district == "6")
 
-# Spatial join crashes with district 6
-crashes_with_district <- st_join(combined_crashes_sf, district_6, left = FALSE)
+# Spatial join crashes with lakefront districts
+lakefront_crashes <- st_join(combined_crashes_sf, lakefront_districts, left = FALSE)
 
 # Transform to meter-based CRS for accurate distance calculations
-crashes_with_district <- st_transform(crashes_with_district, 3857)
+lakefront_crashes <- st_transform(lakefront_crashes, 3857)
+
+# Keep district 6 crashes for district-specific analysis
+crashes_with_district <- lakefront_crashes %>%
+  filter(senate_district == "6")
 
 # Query OSM for Lake Shore Drive
 lake_shore_streets <- opq(bbox = CHICAGO_BBOX) %>%
@@ -65,18 +72,25 @@ Process crashes within the Lake Shore Drive buffer:
 buffer <- st_buffer(lake_shore_streets, dist = BUFFER_DISTANCE_M)
 intersects <- st_intersects(crashes_with_district, buffer, sparse = FALSE)
 
-# Filter crashes within buffer and calculate counts
-crashes_with_district$is_lakeshore_crash <- apply(intersects, 1, any)
-lakeshore_crashes <- crashes_with_district %>%
+# Filter crashes within buffer and calculate counts for all lakefront districts
+lakefront_intersects <- st_intersects(lakefront_crashes, buffer, sparse = FALSE)
+lakefront_crashes$is_lakeshore_crash <- apply(lakefront_intersects, 1, any)
+lakeshore_crashes <- lakefront_crashes %>%
   filter(is_lakeshore_crash) %>%
   mutate(
     crash_count = 1,
-    fatality_count = ifelse(!is.na(FATALITY_VICTIM) & FATALITY_VICTIM != "", 1, 0)
+    fatality_count = ifelse(!is.na(FATALITY_VICTIM) & FATALITY_VICTIM != "", 1, 0),
+    total_injuries = INJURIES_TOTAL,
+    incap_injuries = INJURIES_INCAPACITATING
   )
 
 # Create fatality subset
 lakeshore_fatalities <- lakeshore_crashes %>%
   filter(fatality_count > 0)
+
+# Create district-specific subsets for the time series visualizations
+district6_crashes <- lakeshore_crashes %>%
+  filter(senate_district == "6")
 ```
 
 ## Crash Impact Visualizations
@@ -85,7 +99,8 @@ lakeshore_fatalities <- lakeshore_crashes %>%
 
 ```{r fatalities-chart, fig.width=8, fig.height=5, message=FALSE, warning=FALSE}
 # Prepare fatalities data
-fatalities_by_year <- lakeshore_fatalities %>%
+fatalities_by_year <- district6_crashes %>%
+  filter(fatality_count > 0) %>%
   st_drop_geometry() %>%
   mutate(year = lubridate::year(CRASH_DATE)) %>%
   group_by(year) %>%
@@ -145,7 +160,7 @@ Includes crashes reported within 100ft of DuSable Lake Shore Drive"
 
 ```{r injuries-chart, fig.width=8, fig.height=5, message=FALSE, warning=FALSE}
 # Prepare injuries data
-injuries_by_year <- lakeshore_crashes %>%
+injuries_by_year <- district6_crashes %>%
   st_drop_geometry() %>%
   mutate(
     year = lubridate::year(CRASH_DATE),
@@ -204,7 +219,7 @@ Includes crashes reported within 100ft of DuSable Lake Shore Drive"
 
 ```{r incap-injuries-chart, fig.width=8, fig.height=5, message=FALSE, warning=FALSE}
 # Prepare incapacitating injuries data
-incap_injuries_by_year <- lakeshore_crashes %>%
+incap_injuries_by_year <- district6_crashes %>%
   st_drop_geometry() %>%
   mutate(
     year = lubridate::year(CRASH_DATE),
@@ -261,7 +276,9 @@ Includes crashes reported within 100ft of DuSable Lake Shore Drive"
 
 ## Interactive Map Visualization
 
-Create an interactive map showing fatality locations:
+## District 6 Fatality Map
+
+Create an interactive map showing fatality locations in District 6:
 
 ```{r create-map, message=FALSE, warning=FALSE}
 # Transform geometries to WGS84 for mapping
@@ -334,38 +351,194 @@ district6_fatality_map <- leaflet() %>%
 district6_fatality_map
 ```
 
+## Lake Shore Drive Injury Map
+
+Create interactive maps showing injuries, incapacitating injuries, and fatalities along Lake Shore Drive:
+
+```{r create-lakeshore-maps, message=FALSE, warning=FALSE}
+# Transform geometries to WGS84 for mapping
+lakeshore_crashes_4326 <- st_transform(lakeshore_crashes, 4326)
+lakefront_districts_4326 <- st_transform(lakefront_districts, 4326)
+
+# Create binary indicators for crashes with injuries
+lakeshore_crashes_4326 <- lakeshore_crashes_4326 %>%
+  mutate(
+    has_injuries = ifelse(INJURIES_TOTAL > 0, 1, 0),
+    has_incap_injuries = ifelse(INJURIES_INCAPACITATING > 0, 1, 0)
+  )
+
+# Create injuries heatmap with adjusted parameters
+injuries_map <- leaflet() %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  # Add lakefront districts outlines
+  addPolygons(
+    data = lakefront_districts_4326,
+    fillOpacity = 0,
+    color = "#4B0082",  # Indigo
+    weight = 2,
+    label = ~paste("Senate District", senate_district)
+  ) %>%
+  # Add Lake Shore Drive
+  addPolylines(
+    data = lake_shore_streets,
+    color = "#666666",
+    weight = 3
+  ) %>%
+  # Add injuries heatmap
+  addHeatmap(
+    data = lakeshore_crashes_4326 %>% filter(has_injuries == 1),
+    lng = ~st_coordinates(geometry)[, 1],
+    lat = ~st_coordinates(geometry)[, 2],
+    intensity = ~1,  # Each crash with injuries counts as 1
+    blur = 15,
+    max = 0.1,
+    radius = 12
+  ) %>%
+  setView(lng = -87.6298, lat = 41.8781, zoom = 12)
+
+# Display the map
+injuries_map
+
+## Lake Shore Drive Incapacitating Injury Map
+
+# Create incapacitating injuries heatmap
+incap_injuries_map <- leaflet() %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  # Add lakefront districts outlines
+  addPolygons(
+    data = lakefront_districts_4326,
+    fillOpacity = 0,
+    color = "#4B0082",  # Indigo
+    weight = 2,
+    label = ~paste("Senate District", senate_district)
+  ) %>%
+  # Add Lake Shore Drive
+  addPolylines(
+    data = lake_shore_streets,
+    color = "#666666",
+    weight = 3
+  ) %>%
+  # Add incapacitating injuries heatmap
+  addHeatmap(
+    data = lakeshore_crashes_4326 %>% filter(has_incap_injuries == 1),
+    lng = ~st_coordinates(geometry)[, 1],
+    lat = ~st_coordinates(geometry)[, 2],
+    intensity = ~1,  # Each crash with incapacitating injuries counts as 1
+    blur = 15,
+    max = 0.1,
+    radius = 12
+  ) %>%
+  setView(lng = -87.6298, lat = 41.8781, zoom = 12)
+
+# Display the map
+incap_injuries_map
+
+## Lake Shore Drive Fatality Map
+
+# Create fatalities map with clusters
+fatalities_map <- leaflet() %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  # Add lakefront districts outlines
+  addPolygons(
+    data = lakefront_districts_4326,
+    fillOpacity = 0,
+    color = "#4B0082",  # Indigo
+    weight = 2,
+    label = ~paste("Senate District", senate_district)
+  ) %>%
+  # Add Lake Shore Drive
+  addPolylines(
+    data = lake_shore_streets,
+    color = "#666666",
+    weight = 3
+  ) %>%
+  # Add clustered fatality circles
+  addCircleMarkers(
+    data = lakeshore_fatalities,
+    lng = ~st_coordinates(geometry)[, 1],
+    lat = ~st_coordinates(geometry)[, 2],
+    radius = 6,
+    color = "red",
+    fillColor = "red",
+    fillOpacity = 0.6,
+    stroke = TRUE,
+    weight = 1,
+    popup = ~paste(
+      "Date:", CRASH_DATE, "<br>",
+      "Fatalities:", fatality_count, "<br>",
+      "Type:", FIRST_CRASH_TYPE
+    ),
+    clusterOptions = markerClusterOptions(
+      maxClusterRadius = 50 * 0.0003,
+      spiderfyOnMaxZoom = TRUE,
+      iconCreateFunction = JS("
+        function(cluster) {
+          var count = cluster.getChildCount();
+          var size = Math.min(50, 20 + Math.sqrt(count) * 8);
+          return new L.DivIcon({
+            html: '<div style=\"background-color: rgba(255, 0, 0, 0.6); width: ' + size + 'px; height: ' + size + 'px; margin-left: -' + (size/2) + 'px; margin-top: -' + (size/2) + 'px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; border: 2px solid rgba(255, 0, 0, 0.8);\">' + count + '</div>',
+            className: 'marker-cluster-custom',
+            iconSize: L.point(size, size)
+          });
+        }
+      ")
+    )
+  ) %>%
+  setView(lng = -87.6298, lat = 41.8781, zoom = 12)
+
+# Display the map
+fatalities_map
+```
+
 ## Summary Statistics
 
 ```{r summary-stats}
-# Calculate Lake Shore Drive statistics
-lakeshore_total_crashes <- nrow(lakeshore_crashes)
-lakeshore_total_injuries <- sum(lakeshore_crashes$INJURIES_TOTAL, na.rm = TRUE)
-lakeshore_total_incap_injuries <- sum(lakeshore_crashes$INJURIES_INCAPACITATING, na.rm = TRUE)
-lakeshore_total_fatalities <- sum(!is.na(lakeshore_crashes$FATALITY_VICTIM) & lakeshore_crashes$FATALITY_VICTIM != "", na.rm = TRUE)
+# First identify Lake Shore Drive crashes
+buffer <- st_buffer(lake_shore_streets, dist = BUFFER_DISTANCE_M)
 
-# Calculate total district statistics
-district_total_crashes <- nrow(crashes_with_district)
-district_total_injuries <- sum(crashes_with_district$INJURIES_TOTAL, na.rm = TRUE)
-district_total_incap_injuries <- sum(crashes_with_district$INJURIES_INCAPACITATING, na.rm = TRUE)
-district_total_fatalities <- sum(!is.na(crashes_with_district$FATALITY_VICTIM) & crashes_with_district$FATALITY_VICTIM != "", na.rm = TRUE)
+# Ensure both geometries are in the same CRS (3857)
+crashes_with_district_3857 <- st_transform(crashes_with_district, 3857)
+buffer_3857 <- st_transform(buffer, 3857)
 
-# Calculate percentages
-pct_crashes <- (lakeshore_total_crashes / district_total_crashes) * 100
-pct_injuries <- (lakeshore_total_injuries / district_total_injuries) * 100
-pct_incap_injuries <- (lakeshore_total_incap_injuries / district_total_incap_injuries) * 100
-pct_fatalities <- (lakeshore_total_fatalities / district_total_fatalities) * 100
+# Identify Lake Shore Drive crashes
+crashes_with_district_3857$is_lakeshore_crash <- st_intersects(crashes_with_district_3857, buffer_3857, sparse = FALSE) %>%
+  apply(1, any)
 
-cat("Lake Shore Drive District 6 Analysis Summary\n")
-cat("----------------------------------------\n")
-cat("Lake Shore Drive Statistics:\n")
-cat("Total Crashes:", lakeshore_total_crashes, "\n")
-cat("Total Injuries:", lakeshore_total_injuries, "\n")
-cat("Total Incapacitating Injuries:", lakeshore_total_incap_injuries, "\n")
-cat("Total Fatalities:", lakeshore_total_fatalities, "\n\n")
+# Get District 6 crashes and Lake Shore Drive crashes within District 6
+district6_crashes <- crashes_with_district_3857
+district6_lakeshore_crashes <- crashes_with_district_3857 %>%
+  filter(is_lakeshore_crash)
 
-cat("Percentage of District 6 Totals:\n")
-cat(sprintf("Crashes: %.1f%%\n", pct_crashes))
-cat(sprintf("Injuries: %.1f%%\n", pct_injuries))
-cat(sprintf("Incapacitating Injuries: %.1f%%\n", pct_incap_injuries))
-cat(sprintf("Fatalities: %.1f%%\n", pct_fatalities))
+# Calculate statistics
+stats_df <- tibble(
+  Metric = c("Total Crashes", "Total Injuries", "Incapacitating Injuries", "Fatalities"),
+  `Lake Shore Drive` = c(
+    nrow(district6_lakeshore_crashes),
+    sum(district6_lakeshore_crashes$INJURIES_TOTAL, na.rm = TRUE),
+    sum(district6_lakeshore_crashes$INJURIES_INCAPACITATING, na.rm = TRUE),
+    sum(!is.na(district6_lakeshore_crashes$FATALITY_VICTIM) & district6_lakeshore_crashes$FATALITY_VICTIM != "", na.rm = TRUE)
+  ),
+  `District 6 Total` = c(
+    nrow(district6_crashes),
+    sum(district6_crashes$INJURIES_TOTAL, na.rm = TRUE),
+    sum(district6_crashes$INJURIES_INCAPACITATING, na.rm = TRUE),
+    sum(!is.na(district6_crashes$FATALITY_VICTIM) & district6_crashes$FATALITY_VICTIM != "", na.rm = TRUE)
+  )
+) %>%
+  mutate(
+    `Percentage of District Total` = sprintf("%.1f%%", (`Lake Shore Drive` / `District 6 Total`) * 100)
+  )
+
+# Create a formatted table
+knitr::kable(stats_df, 
+             format = "html",
+             caption = "Lake Shore Drive District 6 Analysis Summary") %>%
+  kableExtra::kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = FALSE,
+    position = "left"
+  ) %>%
+  kableExtra::row_spec(0, bold = TRUE, background = "#4B0082", color = "white") %>%
+  kableExtra::column_spec(1, bold = TRUE) %>%
+  kableExtra::add_header_above(c(" " = 1, "Crash Statistics" = 3))
 ```
