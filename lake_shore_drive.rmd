@@ -1,9 +1,12 @@
 ---
-title: "Lake Shore Drive District 6 Crash Analysis"
+title: "Lake Shore Drive Corridor Crash Analysis"
 output:
   html_document:
     output_dir: docs
-    output_file: district6_crashes.html
+    output_file: dlsd_crashes.html
+editor_options: 
+  markdown: 
+    wrap: 72
 ---
 
 ```{r setup, include=FALSE}
@@ -30,43 +33,21 @@ crash_fatalities_sf <- convert_to_sf(crash_fatalities, "Longitude", "Latitude")
 combined_crashes_sf <- dplyr::bind_rows(crashes_sf, crash_fatalities_sf)
 ```
 
-## District and Street Processing
+## Lake Shore Drive Processing
 
-Next, we'll process the senate district data and Lake Shore Drive information:
+Next, we'll process the Lake Shore Drive information:
 
-```{r process-district, message=FALSE, warning=FALSE}
-# Load senate district shapefile and filter for lakefront districts
+```{r process-lsd, message=FALSE, warning=FALSE}
 library(sf)
 library(dplyr)
 library(osmdata)
 library(stringr)
 
-# 1) Load senate district shapefile and filter for lakefront districts
-senate_districts <- load_district_shapefile(
-  "data/raw/shapefiles/senate/senate_districts.shp",
-  new_name = "senate_district"
-)
-lakefront_districts <- senate_districts %>%
-  filter(senate_district %in% c("6", "7", "13"))
-
-district_6 <- senate_districts %>%
-  filter(senate_district == "6")
-
-# 2) Spatial join crashes with lakefront districts
-lakefront_crashes <- sf::st_join(combined_crashes_sf, lakefront_districts, left = FALSE)
-
-# 3) Transform to meter-based CRS (EPSG 3857) for accurate distance calculations
-lakefront_crashes <- sf::st_transform(lakefront_crashes, 3857)
-
-# 4) Keep District 6 crashes for district-specific analysis
-crashes_with_district <- lakefront_crashes %>%
-  filter(senate_district == "6")
-
-# 5) Define a bounding box for Chicago and the buffer distance (100 ft ~ 30.48 m)
+# 1) Define a bounding box for Chicago and the buffer distance (150 ft ~ 45.72 m)
 CHICAGO_BBOX <- c(-87.9401, 41.6445, -87.5239, 42.0230)
 BUFFER_DISTANCE_M <- 45.72
 
-# 6) Query OSM for the main US 41 portion of Lake Shore Drive
+# 2) Query OSM for the main US 41 portion of Lake Shore Drive
 lsd_us41_query <- opq(bbox = CHICAGO_BBOX) %>%
   add_osm_feature(key = 'highway') %>%
   add_osm_feature(key = 'ref', value = 'US 41', value_exact = FALSE) %>%
@@ -74,29 +55,28 @@ lsd_us41_query <- opq(bbox = CHICAGO_BBOX) %>%
   osmdata_sf()
 lsd_us41_lines <- lsd_us41_query$osm_lines
 
-# 7) Query OSM for the northern extension by name
+# 3) Query OSM for the northern extension by name
 lsd_north_query <- opq(bbox = CHICAGO_BBOX) %>%
   add_osm_feature(key = 'highway') %>%
-  # If the exact name in OSM is "North Jean Baptiste Point DuSable Lake Shore Drive",
-  # set value_exact=TRUE. If not certain, leave it FALSE:
   add_osm_feature(key = 'name', value = 'North Jean Baptiste Point DuSable Lake Shore Drive', value_exact = FALSE) %>%
   osmdata_sf()
 lsd_north_lines <- lsd_north_query$osm_lines
 
-# 8) Extract just the geometry from each to avoid mismatched columns
+# 4) Extract just the geometry from each to avoid mismatched columns
 us41_geom  <- sf::st_geometry(lsd_us41_lines)
 north_geom <- sf::st_geometry(lsd_north_lines)
 
-# 9) Combine the geometry into a single sf object
+# 5) Combine the geometry into a single sf object
 combined_geom <- c(us41_geom, north_geom)
 lake_shore_streets <- sf::st_sf(
   name = rep("Lake Shore Drive", length(combined_geom)),
   geometry = combined_geom,
-  crs = sf::st_crs(lsd_us41_lines)  # same CRS as the original OSM lines
+  crs = sf::st_crs(lsd_us41_lines)
 )
 
-# 10) Transform to EPSG 3857 (to match lakefront_crashes) for buffering
+# 6) Transform to EPSG 3857 for accurate distance calculations
 lake_shore_streets <- sf::st_transform(lake_shore_streets, 3857)
+combined_crashes_sf <- sf::st_transform(combined_crashes_sf, 3857)
 ```
 
 ## Crash Analysis
@@ -106,14 +86,10 @@ Process crashes within the Lake Shore Drive buffer:
 ```{r analyze-crashes, message=FALSE, warning=FALSE}
 # 1) Create buffer around Lake Shore Drive and identify intersecting crashes
 buffer <- st_buffer(lake_shore_streets, dist = BUFFER_DISTANCE_M)
-intersects <- st_intersects(crashes_with_district, buffer, sparse = FALSE)
+intersects <- st_intersects(combined_crashes_sf, buffer, sparse = FALSE)
 
-# 2) Filter crashes within buffer and calculate counts for all lakefront districts
-lakefront_intersects <- st_intersects(lakefront_crashes, buffer, sparse = FALSE)
-lakefront_crashes$is_lakeshore_crash <- apply(lakefront_intersects, 1, any)
-
-lakeshore_crashes <- lakefront_crashes %>%
-  filter(is_lakeshore_crash) %>%
+# 2) Filter crashes within buffer
+lakeshore_crashes <- combined_crashes_sf[apply(intersects, 1, any), ] %>%
   mutate(
     crash_count = 1,
     fatality_count = ifelse(!is.na(FATALITY_VICTIM) & FATALITY_VICTIM != "", 1, 0),
@@ -124,11 +100,48 @@ lakeshore_crashes <- lakefront_crashes %>%
 # 3) Create fatality subset
 lakeshore_fatalities <- lakeshore_crashes %>%
   filter(fatality_count > 0)
-
-# 4) Create district-specific subsets for the time series visualizations
-district6_crashes <- lakeshore_crashes %>%
-  filter(senate_district == "6")
 ```
+
+## Study Area Definition
+
+This analysis examines crashes within 150 feet (approximately 30.48
+meters) of Lake Shore Drive. Here's a visualization of how we define the
+study area:
+
+```{r buffer-visualization, fig.width=10, fig.height=6, message=FALSE, warning=FALSE}
+# Transform to WGS84 for visualization
+lake_shore_streets_4326 <- st_transform(lake_shore_streets, 4326)
+buffer_4326 <- st_transform(buffer, 4326)
+
+# Create a zoomed-in example of the buffer
+buffer_example <- leaflet() %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  # Add Lake Shore Drive
+  addPolylines(
+    data = lake_shore_streets_4326,
+    color = "#4B0082",  # Indigo
+    weight = 3,
+    label = "Lake Shore Drive"
+  ) %>%
+  # Add the buffer area
+  addPolygons(
+    data = buffer_4326,
+    fillColor = "#9370DB",  # Medium purple
+    fillOpacity = 0.3,
+    color = "#4B0082",  # Indigo
+    weight = 2,
+    label = "150ft Buffer Zone"
+  ) %>%
+  # Set view to a section that shows the buffer clearly
+  setView(lng = -87.6298, lat = 41.8781, zoom = 14)
+
+# Display the map
+buffer_example
+```
+
+The purple-shaded area represents our study area - a 150-foot buffer on
+either side of Lake Shore Drive. All crash statistics in this analysis
+are drawn from incidents that occurred within this buffer zone.
 
 ## Crash Impact Visualizations
 
@@ -136,7 +149,7 @@ district6_crashes <- lakeshore_crashes %>%
 
 ```{r fatalities-chart, fig.width=8, fig.height=5, message=FALSE, warning=FALSE}
 # Prepare fatalities data
-fatalities_by_year <- district6_crashes %>%
+fatalities_by_year <- lakeshore_crashes %>%
   filter(fatality_count > 0) %>%
   st_drop_geometry() %>%
   mutate(year = year(CRASH_DATE)) %>%
@@ -159,128 +172,10 @@ ggplot(fatalities_by_year, aes(x = year, y = total_fatalities)) +
   labs(
     x = "Year",
     y = NULL,
-    title = "Traffic Fatalities Along Lake Shore Drive in District 6",
+    title = "Traffic Fatalities Along Lake Shore Drive",
     subtitle = "Annual count of traffic-related fatalities",
     caption = "Data: Chicago City Data Portal \"Traffic Crashes - Vision Zero Chicago Traffic Fatalities\" Retrieved Feb. 6, 2025
-Includes crashes reported within 100ft of DuSable Lake Shore Drive"
-  ) +
-  scale_x_continuous(
-    breaks = seq(min_year, max_year, by = 1)
-  ) +
-  scale_y_continuous(
-    expand = expansion(mult = c(0, 0.15)),
-    breaks = function(x) seq(0, ceiling(max(x)), by = 1)
-  ) +
-  theme_classic() +
-  theme(
-    plot.title = element_text(face = "bold", size = 12, margin = margin(b = 10)),
-    plot.subtitle = element_text(size = 10, color = "#666666"),
-    plot.background = element_rect(fill = "#FFFCF7"),
-    panel.background = element_rect(fill = "#FFFCF7"),
-    panel.grid.major.y = element_line(color = "#f0f0f0", linewidth = 0.3),
-    text = element_text(family = "Arial"),
-    axis.line = element_line(color = "#666666"),
-    axis.ticks = element_line(color = "#666666"),
-    axis.title = element_text(color = "#666666"),
-    axis.text = element_text(color = "#666666"),
-    plot.caption = element_text(
-      color = "#666666",
-      size = 8,
-      margin = margin(t = 10),
-      hjust = 0
-    ),
-    plot.margin = margin(t = 15, r = 20, b = 15, l = 15, unit = "pt")
-  )
-```
-
-### Total Injuries Over Time
-
-```{r injuries-chart, fig.width=8, fig.height=5, message=FALSE, warning=FALSE}
-# Prepare injuries data
-injuries_by_year <- district6_crashes %>%
-  st_drop_geometry() %>%
-  mutate(
-    year = year(CRASH_DATE),
-    total_injuries = INJURIES_TOTAL
-  ) %>%
-  group_by(year) %>%
-  summarize(total_injuries = sum(total_injuries, na.rm = TRUE))
-
-# Create the injuries visualization
-ggplot(injuries_by_year, aes(x = year, y = total_injuries)) +
-  geom_col(fill = "#9370DB", width = 0.7) +
-  geom_text(
-    aes(label = total_injuries),
-    vjust = -0.5,
-    size = 3.5,
-    family = "Arial"
-  ) +
-  labs(
-    x = "Year",
-    y = NULL,
-    title = "Injuries From Crashes Along DuSable Lake Shore Drive in District 6",
-    subtitle = "Total persons sustaining fatal, incapacitating, non-incapacitating, and possible injuries",
-    caption = "Data: Chicago City Data Portal \"Traffic Crashes\" Retrieved Feb. 6, 2025
-Includes crashes reported within 100ft of DuSable Lake Shore Drive"
-  ) +
-  scale_x_continuous(
-    breaks = seq(min_year, max_year, by = 1)
-  ) +
-  scale_y_continuous(
-    expand = expansion(mult = c(0, 0.15)),
-    breaks = function(x) seq(0, ceiling(max(x)), by = 50)
-  ) +
-  theme_classic() +
-  theme(
-    plot.title = element_text(face = "bold", size = 12, margin = margin(b = 10)),
-    plot.subtitle = element_text(size = 10, color = "#666666"),
-    plot.background = element_rect(fill = "#FFFCF7"),
-    panel.background = element_rect(fill = "#FFFCF7"),
-    panel.grid.major.y = element_line(color = "#f0f0f0", linewidth = 0.3),
-    text = element_text(family = "Arial"),
-    axis.line = element_line(color = "#666666"),
-    axis.ticks = element_line(color = "#666666"),
-    axis.title = element_text(color = "#666666"),
-    axis.text = element_text(color = "#666666"),
-    plot.caption = element_text(
-      color = "#666666",
-      size = 8,
-      margin = margin(t = 10),
-      hjust = 0
-    ),
-    plot.margin = margin(t = 15, r = 20, b = 15, l = 15, unit = "pt")
-  )
-```
-
-### Incapacitating Injuries Over Time
-
-```{r incap-injuries-chart, fig.width=8, fig.height=5, message=FALSE, warning=FALSE}
-# Prepare incapacitating injuries data
-incap_injuries_by_year <- district6_crashes %>%
-  st_drop_geometry() %>%
-  mutate(
-    year = year(CRASH_DATE),
-    incap_injuries = INJURIES_INCAPACITATING
-  ) %>%
-  group_by(year) %>%
-  summarize(total_incap_injuries = sum(incap_injuries, na.rm = TRUE))
-
-# Create the incapacitating injuries visualization
-ggplot(incap_injuries_by_year, aes(x = year, y = total_incap_injuries)) +
-  geom_col(fill = "#9370DB", width = 0.7) +
-  geom_text(
-    aes(label = total_incap_injuries),
-    vjust = -0.5,
-    size = 3.5,
-    family = "Arial"
-  ) +
-  labs(
-    x = "Year",
-    y = NULL,
-    title = "Incapacitating Injuries Along DuSable Lake Shore Drive in District 6",
-    subtitle = "Total persons sustaining incapacitating/serious injuries in a crash",
-    caption = "Data: Chicago City Data Portal \"Traffic Crashes\" Retrieved Feb. 6, 2025
-Includes crashes reported within 100ft of DuSable Lake Shore Drive"
+Includes crashes reported within 150ft of DuSable Lake Shore Drive"
   ) +
   scale_x_continuous(
     breaks = seq(min_year, max_year, by = 1)
@@ -311,30 +206,138 @@ Includes crashes reported within 100ft of DuSable Lake Shore Drive"
   )
 ```
 
+### Total Injuries Over Time
+
+```{r injuries-chart, fig.width=8, fig.height=5, message=FALSE, warning=FALSE}
+# Prepare injuries data
+injuries_by_year <- lakeshore_crashes %>%
+  st_drop_geometry() %>%
+  mutate(
+    year = year(CRASH_DATE),
+    total_injuries = INJURIES_TOTAL
+  ) %>%
+  group_by(year) %>%
+  summarize(total_injuries = sum(total_injuries, na.rm = TRUE))
+
+# Create the injuries visualization
+ggplot(injuries_by_year, aes(x = year, y = total_injuries)) +
+  geom_col(fill = "#9370DB", width = 0.7) +
+  geom_text(
+    aes(label = total_injuries),
+    vjust = -0.5,
+    size = 3.5,
+    family = "Arial"
+  ) +
+  labs(
+    x = "Year",
+    y = NULL,
+    title = "Injuries From Crashes Along DuSable Lake Shore Drive",
+    subtitle = "Total persons sustaining fatal, incapacitating, non-incapacitating, and possible injuries",
+    caption = "Data: Chicago City Data Portal \"Traffic Crashes\" Retrieved Feb. 6, 2025
+Includes crashes reported within 150ft of DuSable Lake Shore Drive"
+  ) +
+  scale_x_continuous(
+    breaks = seq(min_year, max_year, by = 1)
+  ) +
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.15)),
+    breaks = function(x) seq(0, ceiling(max(x)), by = 100)
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(face = "bold", size = 12, margin = margin(b = 10)),
+    plot.subtitle = element_text(size = 10, color = "#666666"),
+    plot.background = element_rect(fill = "#FFFCF7"),
+    panel.background = element_rect(fill = "#FFFCF7"),
+    panel.grid.major.y = element_line(color = "#f0f0f0", linewidth = 0.3),
+    text = element_text(family = "Arial"),
+    axis.line = element_line(color = "#666666"),
+    axis.ticks = element_line(color = "#666666"),
+    axis.title = element_text(color = "#666666"),
+    axis.text = element_text(color = "#666666"),
+    plot.caption = element_text(
+      color = "#666666",
+      size = 8,
+      margin = margin(t = 10),
+      hjust = 0
+    ),
+    plot.margin = margin(t = 15, r = 20, b = 15, l = 15, unit = "pt")
+  )
+```
+
+### Incapacitating Injuries Over Time
+
+```{r incap-injuries-chart, fig.width=8, fig.height=5, message=FALSE, warning=FALSE}
+# Prepare incapacitating injuries data
+incap_injuries_by_year <- lakeshore_crashes %>%
+  st_drop_geometry() %>%
+  mutate(
+    year = year(CRASH_DATE),
+    incap_injuries = INJURIES_INCAPACITATING
+  ) %>%
+  group_by(year) %>%
+  summarize(total_incap_injuries = sum(incap_injuries, na.rm = TRUE))
+
+# Create the incapacitating injuries visualization
+ggplot(incap_injuries_by_year, aes(x = year, y = total_incap_injuries)) +
+  geom_col(fill = "#9370DB", width = 0.7) +
+  geom_text(
+    aes(label = total_incap_injuries),
+    vjust = -0.5,
+    size = 3.5,
+    family = "Arial"
+  ) +
+  labs(
+    x = "Year",
+    y = NULL,
+    title = "Incapacitating Injuries Along DuSable Lake Shore Drive",
+    subtitle = "Total persons sustaining incapacitating/serious injuries in a crash",
+    caption = "Data: Chicago City Data Portal \"Traffic Crashes\" Retrieved Feb. 6, 2025
+Includes crashes reported within 150ft of DuSable Lake Shore Drive"
+  ) +
+  scale_x_continuous(
+    breaks = seq(min_year, max_year, by = 1)
+  ) +
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.15)),
+    breaks = function(x) seq(0, ceiling(max(x)), by = 10)
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(face = "bold", size = 12, margin = margin(b = 10)),
+    plot.subtitle = element_text(size = 10, color = "#666666"),
+    plot.background = element_rect(fill = "#FFFCF7"),
+    panel.background = element_rect(fill = "#FFFCF7"),
+    panel.grid.major.y = element_line(color = "#f0f0f0", linewidth = 0.3),
+    text = element_text(family = "Arial"),
+    axis.line = element_line(color = "#666666"),
+    axis.ticks = element_line(color = "#666666"),
+    axis.title = element_text(color = "#666666"),
+    axis.text = element_text(color = "#666666"),
+    plot.caption = element_text(
+      color = "#666666",
+      size = 8,
+      margin = margin(t = 10),
+      hjust = 0
+    ),
+    plot.margin = margin(t = 15, r = 20, b = 15, l = 15, unit = "pt")
+  )
+```
+
 ## Summary Statistics
 
 ```{r crash-stats}
 # Calculate Lake Shore Drive statistics
-lakeshore_total_crashes <- nrow(district6_crashes)
-lakeshore_total_injuries <- sum(district6_crashes$INJURIES_TOTAL, na.rm = TRUE)
-lakeshore_total_incap_injuries <- sum(district6_crashes$INJURIES_INCAPACITATING, na.rm = TRUE)
-lakeshore_total_fatalities <- sum(district6_crashes$fatality_count, na.rm = TRUE)
-
-# Calculate District 6 total statistics
-district_total_crashes <- nrow(crashes_with_district)
-district_total_injuries <- sum(crashes_with_district$INJURIES_TOTAL, na.rm = TRUE)
-district_total_incap_injuries <- sum(crashes_with_district$INJURIES_INCAPACITATING, na.rm = TRUE)
-district_total_fatalities <- sum(!is.na(crashes_with_district$FATALITY_VICTIM) & crashes_with_district$FATALITY_VICTIM != "", na.rm = TRUE)
+lakeshore_total_crashes <- nrow(lakeshore_crashes)
+lakeshore_total_injuries <- sum(lakeshore_crashes$INJURIES_TOTAL, na.rm = TRUE)
+lakeshore_total_incap_injuries <- sum(lakeshore_crashes$INJURIES_INCAPACITATING, na.rm = TRUE)
+lakeshore_total_fatalities <- sum(lakeshore_crashes$fatality_count, na.rm = TRUE)
 
 # Create summary statistics dataframe
 crash_stats <- tibble(
   Metric = c("Total Crashes", "Total Injuries", "Incapacitating Injuries", "Fatalities"),
-  `Lake Shore Drive` = c(lakeshore_total_crashes, lakeshore_total_injuries, lakeshore_total_incap_injuries, lakeshore_total_fatalities),
-  `District 6 Total` = c(district_total_crashes, district_total_injuries, district_total_incap_injuries, district_total_fatalities)
-) %>%
-  mutate(
-    `Percentage of District Total` = sprintf("%.1f%%", (`Lake Shore Drive` / `District 6 Total`) * 100)
-  )
+  `Lake Shore Drive Corridor` = c(lakeshore_total_crashes, lakeshore_total_injuries, lakeshore_total_incap_injuries, lakeshore_total_fatalities)
+)
 
 # Create formatted table
 knitr::kable(crash_stats, format = "html") %>%
@@ -347,91 +350,14 @@ knitr::kable(crash_stats, format = "html") %>%
   kableExtra::column_spec(1, bold = TRUE)
 ```
 
-## Interactive Map Visualization
+## Interactive Map Visualizations
 
-### District 6 Fatality Map
+### Map of Crashes with Injury
 
-Create an interactive map showing fatality locations in District 6:
-
-```{r create-map, message=FALSE, warning=FALSE}
-# Transform geometries to WGS84 for mapping
-lakeshore_fatalities <- st_transform(lakeshore_fatalities, 4326)
-lake_shore_streets_4326 <- st_transform(lake_shore_streets, 4326)
-buffer_4326 <- st_transform(buffer, 4326)
-district_6 <- st_transform(district_6, 4326)
-
-# Create Lake Shore Drive district 6 fatality map
-district6_fatality_map <- leaflet() %>%
-  addProviderTiles(providers$CartoDB.Positron) %>%
-  # Add district 6
-  addPolygons(
-    data = district_6,
-    fillColor = "#9370DB",  # Medium purple
-    fillOpacity = 0.3,
-    color = "#4B0082",  # Indigo
-    weight = 2,
-    label = ~paste("Senate District", senate_district)
-  ) %>%
-  # Add Lake Shore Drive
-  addPolylines(
-    data = lake_shore_streets_4326,
-    color = "#CCCCCC",
-    weight = 3
-  ) %>%
-  # Add the buffer area
-  addPolygons(
-    data = buffer_4326,
-    fillColor = "#CCCCCC",  # Light gray
-    fillOpacity = 0.2,
-    color = "#CCCCCC",  # Light gray
-    weight = 2
-  ) %>%
-  # Add clustered fatality circles
-  addCircleMarkers(
-    data = lakeshore_fatalities,
-    lng = ~st_coordinates(geometry)[, 1],
-    lat = ~st_coordinates(geometry)[, 2],
-    radius = 6,  # Base size for individual points
-    color = "red",
-    fillColor = "red",
-    fillOpacity = 0.6,
-    stroke = TRUE,
-    weight = 1,
-    popup = ~paste(
-      "Date:", CRASH_DATE, "<br>",
-      "Fatalities:", fatality_count, "<br>",
-      "Type:", FIRST_CRASH_TYPE
-    ),
-    clusterOptions = markerClusterOptions(
-      maxClusterRadius = 50 * 0.0003,  # Approximate conversion of 50ft to degrees
-      spiderfyOnMaxZoom = TRUE,
-      iconCreateFunction = JS("
-        function(cluster) {
-          var count = cluster.getChildCount();
-          var size = Math.min(50, 20 + Math.sqrt(count) * 8);
-          return new L.DivIcon({
-            html: '<div style=\"background-color: rgba(255, 0, 0, 0.6); width: ' + size + 'px; height: ' + size + 'px; margin-left: -' + (size/2) + 'px; margin-top: -' + (size/2) + 'px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; border: 2px solid rgba(255, 0, 0, 0.8);\">' + count + '</div>',
-            className: 'marker-cluster-custom',
-            iconSize: L.point(size, size)
-          });
-        }
-      ")
-    )
-  ) %>%
-  setView(lng = -87.6298, lat = 41.8781, zoom = 12)
-
-# Display the map
-district6_fatality_map
-```
-
-### Lake Shore Drive Injury Map
-
-Create interactive maps showing injuries, incapacitating injuries, and fatalities along Lake Shore Drive:
-
-```{r create-lakeshore-maps, message=FALSE, warning=FALSE}
-# Transform crashes to WGS84 for mapping
+```{r injury-map}
+# Transform to WGS84 for mapping
 lakeshore_crashes_4326 <- st_transform(lakeshore_crashes, 4326)
-lakefront_districts_4326 <- st_transform(lakefront_districts, 4326)
+lake_shore_streets_4326 <- st_transform(lake_shore_streets, 4326)
 
 # Create binary indicators for crashes with injuries
 lakeshore_crashes_4326 <- lakeshore_crashes_4326 %>%
@@ -443,19 +369,12 @@ lakeshore_crashes_4326 <- lakeshore_crashes_4326 %>%
 # Create injuries heatmap
 injuries_map <- leaflet() %>%
   addProviderTiles(providers$CartoDB.Positron) %>%
-  # Add lakefront districts outlines
-  addPolygons(
-    data = lakefront_districts_4326,
-    fillOpacity = 0,
-    color = "#4B0082",  # Indigo
-    weight = 2,
-    label = ~paste("Senate District", senate_district)
-  ) %>%
-  # Add Lake Shore Drive (in 4326)
+  # Add Lake Shore Drive
   addPolylines(
     data = lake_shore_streets_4326,
     color = "#666666",
-    weight = 3
+    weight = 3,
+    label = "Lake Shore Drive"
   ) %>%
   # Add injuries heatmap
   addHeatmap(
@@ -473,26 +392,18 @@ injuries_map <- leaflet() %>%
 injuries_map
 ```
 
-### Lake Shore Drive Incapacitating Injury Map
+### Map of Crashes with Incapacitating Injury
 
-```{r incap-injuries-map, message=FALSE, warning=FALSE}
-
+```{r incap-injury-map}
 # Create incapacitating injuries heatmap
 incap_injuries_map <- leaflet() %>%
   addProviderTiles(providers$CartoDB.Positron) %>%
-  # Add lakefront districts outlines
-  addPolygons(
-    data = lakefront_districts_4326,
-    fillOpacity = 0,
-    color = "#4B0082",  # Indigo
-    weight = 2,
-    label = ~paste("Senate District", senate_district)
-  ) %>%
   # Add Lake Shore Drive
   addPolylines(
     data = lake_shore_streets_4326,
     color = "#666666",
-    weight = 3
+    weight = 3,
+    label = "Lake Shore Drive"
   ) %>%
   # Add incapacitating injuries heatmap
   addHeatmap(
@@ -508,29 +419,27 @@ incap_injuries_map <- leaflet() %>%
 
 # Display the map
 incap_injuries_map
+```
 
-### Lake Shore Drive Fatality Map
+### Map of Crashes with Fatalities
+
+```{r fatality-map}
+# Transform fatalities to WGS84 for mapping
+lakeshore_fatalities_4326 <- st_transform(lakeshore_fatalities, 4326)
 
 # Create fatalities map with clusters
 fatalities_map <- leaflet() %>%
   addProviderTiles(providers$CartoDB.Positron) %>%
-  # Add lakefront districts outlines
-  addPolygons(
-    data = lakefront_districts_4326,
-    fillOpacity = 0,
-    color = "#4B0082",  # Indigo
-    weight = 2,
-    label = ~paste("Senate District", senate_district)
-  ) %>%
   # Add Lake Shore Drive
   addPolylines(
     data = lake_shore_streets_4326,
     color = "#666666",
-    weight = 3
+    weight = 3,
+    label = "Lake Shore Drive"
   ) %>%
   # Add clustered fatality circles
   addCircleMarkers(
-    data = lakeshore_fatalities,
+    data = lakeshore_fatalities_4326,
     lng = ~st_coordinates(geometry)[, 1],
     lat = ~st_coordinates(geometry)[, 2],
     radius = 6,
@@ -564,4 +473,5 @@ fatalities_map <- leaflet() %>%
 
 # Display the map
 fatalities_map
+
 ```
