@@ -327,20 +327,62 @@ Includes crashes reported within 150ft of DuSable Lake Shore Drive"
 ## Summary Statistics
 
 ```{r crash-stats}
+# Load required libraries
+library(dplyr)
+library(knitr)
+library(kableExtra)
+library(sf)
+
 # Calculate Lake Shore Drive statistics
+# (lakeshore_crashes already has fatality_count from the previous step)
 lakeshore_total_crashes <- nrow(lakeshore_crashes)
 lakeshore_total_injuries <- sum(lakeshore_crashes$INJURIES_TOTAL, na.rm = TRUE)
 lakeshore_total_incap_injuries <- sum(lakeshore_crashes$INJURIES_INCAPACITATING, na.rm = TRUE)
 lakeshore_total_fatalities <- sum(lakeshore_crashes$fatality_count, na.rm = TRUE)
 
-# Create summary statistics dataframe
-crash_stats <- tibble(
+# Calculate citywide statistics
+# First create fatality_count for citywide data the same way
+crashes_with_fatalities <- combined_crashes_sf %>%
+  mutate(
+    fatality_count = ifelse(!is.na(FATALITY_VICTIM) & FATALITY_VICTIM != "", 1, 0)
+  )
+
+citywide_total_crashes <- nrow(crashes_with_fatalities)
+citywide_total_injuries <- sum(crashes_with_fatalities$INJURIES_TOTAL, na.rm = TRUE)
+citywide_total_incap_injuries <- sum(crashes_with_fatalities$INJURIES_INCAPACITATING, na.rm = TRUE)
+citywide_total_fatalities <- sum(crashes_with_fatalities$fatality_count, na.rm = TRUE)
+
+# Calculate percentages
+pct_crashes <- round(lakeshore_total_crashes / citywide_total_crashes * 100, 1)
+pct_injuries <- round(lakeshore_total_injuries / citywide_total_injuries * 100, 1)
+pct_incap_injuries <- round(lakeshore_total_incap_injuries / citywide_total_incap_injuries * 100, 1)
+pct_fatalities <- round(lakeshore_total_fatalities / citywide_total_fatalities * 100, 1)
+
+# Create expanded summary statistics dataframe
+crash_stats_expanded <- tibble(
   Metric = c("Total Crashes", "Total Injuries", "Incapacitating Injuries", "Fatalities"),
-  `Lake Shore Drive Corridor` = c(lakeshore_total_crashes, lakeshore_total_injuries, lakeshore_total_incap_injuries, lakeshore_total_fatalities)
+  `DLSD Corridor` = c(
+    formatC(lakeshore_total_crashes, big.mark = ",", format = "f", digits = 0),
+    formatC(lakeshore_total_injuries, big.mark = ",", format = "f", digits = 0),
+    formatC(lakeshore_total_incap_injuries, big.mark = ",", format = "f", digits = 0),
+    formatC(lakeshore_total_fatalities, big.mark = ",", format = "f", digits = 0)
+  ),
+  `Citywide Total` = c(
+    formatC(citywide_total_crashes, big.mark = ",", format = "f", digits = 0),
+    formatC(citywide_total_injuries, big.mark = ",", format = "f", digits = 0),
+    formatC(citywide_total_incap_injuries, big.mark = ",", format = "f", digits = 0),
+    formatC(citywide_total_fatalities, big.mark = ",", format = "f", digits = 0)
+  ),
+  `DLSD % of Citywide Total` = c(
+    paste0(pct_crashes, "%"),
+    paste0(pct_injuries, "%"),
+    paste0(pct_incap_injuries, "%"),
+    paste0(pct_fatalities, "%")
+  )
 )
 
 # Create formatted table
-knitr::kable(crash_stats, format = "html") %>%
+crash_stats_table <- knitr::kable(crash_stats_expanded, format = "html") %>%
   kableExtra::kable_styling(
     bootstrap_options = "striped",
     full_width = FALSE,
@@ -348,6 +390,9 @@ knitr::kable(crash_stats, format = "html") %>%
   ) %>%
   kableExtra::row_spec(0, bold = TRUE, color = "white", background = "#4B0082") %>%
   kableExtra::column_spec(1, bold = TRUE)
+
+# Display the table
+crash_stats_table
 ```
 
 ## Interactive Map Visualizations
