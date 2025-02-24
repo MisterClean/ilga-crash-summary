@@ -9,11 +9,11 @@ editor_options:
     wrap: 72
 ---
 
-```{r setup, include=FALSE}
+```{r setup, include=FALSE, results='hide'}
 knitr::opts_chunk$set(echo = FALSE)
 ```
 
-```{r load-data, message=FALSE, warning=FALSE}
+```{r load-data, message=FALSE, warning=FALSE, results='hide'}
 # Source utility functions (which loads libraries)
 source("R/utils.R")
 library(sf)
@@ -128,7 +128,7 @@ Lake Shore Drive represents less than 0.5% of center-line length of all
 roadways in Chicago, but it accounts for \~7% of all traffic fatalities.
 It is a disproportionately fatal corridor.
 
-```{r crash-stats}
+```{r crash-stats, message=FALSE,}
 # Load required libraries
 library(dplyr)
 library(knitr)
@@ -380,61 +380,6 @@ Includes crashes reported within 150ft of DuSable Lake Shore Drive"
   )
 ```
 
-### Map of Crashes with Fatalities
-
-```{r fatality-map}
-# Transform fatalities to WGS84 for mapping
-lakeshore_fatalities_4326 <- st_transform(lakeshore_fatalities, 4326)
-
-# Create fatalities map with clusters
-fatalities_map <- leaflet() %>%
-  addProviderTiles(providers$CartoDB.Positron) %>%
-  # Add Lake Shore Drive
-  addPolylines(
-    data = lake_shore_streets_4326,
-    color = "#666666",
-    weight = 3,
-    label = "Lake Shore Drive"
-  ) %>%
-  # Add clustered fatality circles
-  addCircleMarkers(
-    data = lakeshore_fatalities_4326,
-    lng = ~st_coordinates(geometry)[, 1],
-    lat = ~st_coordinates(geometry)[, 2],
-    radius = 6,
-    color = "red",
-    fillColor = "red",
-    fillOpacity = 0.6,
-    stroke = TRUE,
-    weight = 1,
-    popup = ~paste(
-      "Date:", CRASH_DATE, "<br>",
-      "Fatalities:", fatality_count, "<br>",
-      "Type:", FIRST_CRASH_TYPE
-    ),
-    clusterOptions = markerClusterOptions(
-      maxClusterRadius = 50 * 0.0003,
-      spiderfyOnMaxZoom = TRUE,
-      iconCreateFunction = JS("
-        function(cluster) {
-          var count = cluster.getChildCount();
-          var size = Math.min(50, 20 + Math.sqrt(count) * 8);
-          return new L.DivIcon({
-            html: '<div style=\"background-color: rgba(255, 0, 0, 0.6); width: ' + size + 'px; height: ' + size + 'px; margin-left: -' + (size/2) + 'px; margin-top: -' + (size/2) + 'px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; border: 2px solid rgba(255, 0, 0, 0.8);\">' + count + '</div>',
-            className: 'marker-cluster-custom',
-            iconSize: L.point(size, size)
-          });
-        }
-      ")
-    )
-  ) %>%
-  setView(lng = -87.6298, lat = 41.8781, zoom = 12)
-
-# Display the map
-fatalities_map
-
-```
-
 ```{r setup-senate, message=FALSE, warning=FALSE}
 # Load senate district shapefile and filter for lakefront districts
 senate_districts <- load_district_shapefile(
@@ -600,6 +545,8 @@ crash_stats_table <- knitr::kable(
 # Display the table
 crash_stats_table
 ```
+
+### Annual Crashes by Senate District
 
 ```{r crashes-by-district, fig.width=10, fig.height=6}
 ggplot(crashes_by_district, 
@@ -784,7 +731,7 @@ Study area: Includes crashes reported within 150ft of DuSable Lake Shore Drive"
 
 ## Crash Clusters
 
-### Where are crashes happening most often? 
+### Where are crashes happening most often?
 
 Hover over a tile to see the summary of crashes, injuries, and
 fatalities.
@@ -806,24 +753,16 @@ lakefront_crashes_4326 <- lakefront_crashes_4326 %>%
 bbox_utm <- st_transform(st_as_sfc(st_bbox(lakefront_crashes_4326)), 26916)
 
 # Create hex grid in UTM with cell size in meters
-hex_grid <- st_make_grid(bbox_utm, 
-                        cellsize = c(200, 200),  # 200 meter hexagons
+hex_grid <- st_make_grid(bbox_utm,
+                        cellsize = c(500, 500),  # 500 meter hexagons
                         square = FALSE) %>%
   st_sf() %>%
   st_transform(4326)  # Transform back to WGS84 for Leaflet
 
-# Calculate crash counts per hexagon
-hex_counts <- lengths(st_intersects(hex_grid, lakefront_crashes_4326))
-
-pal <- colorNumeric(
-  palette = "YlOrRd",  # Yellow-Orange-Red color scheme
-  domain = hex_sf$count
-)
-
 # Create the hex grid with additional statistics
 hex_sf <- hex_grid %>%
   mutate(
-    count = hex_counts,
+    count = lengths(st_intersects(., lakefront_crashes_4326)),
     total_injuries = sapply(st_intersects(., lakefront_crashes_4326), function(idx) {
       sum(lakefront_crashes_4326$INJURIES_TOTAL[idx], na.rm = TRUE)
     }),
@@ -835,6 +774,12 @@ hex_sf <- hex_grid %>%
     })
   ) %>%
   filter(count > 0)
+
+# Create color palette
+pal <- colorNumeric(
+  palette = "YlOrRd",  # Yellow-Orange-Red color scheme
+  domain = hex_sf$count
+)
 
 # Create the map
 crash_map <- leaflet() %>%
@@ -894,7 +839,7 @@ bbox_utm <- st_transform(st_as_sfc(st_bbox(lakefront_crashes_4326)), 26916)
 
 # Create hex grid in UTM with cell size in meters
 hex_grid <- st_make_grid(bbox_utm, 
-                        cellsize = c(200, 200),  # 200 meter hexagons
+                        cellsize = c(450, 450),  # 200 meter hexagons
                         square = FALSE) %>%
   st_sf() %>%
   st_transform(4326)  # Transform back to WGS84 for Leaflet
