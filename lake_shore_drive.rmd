@@ -380,7 +380,7 @@ Includes crashes reported within 150ft of DuSable Lake Shore Drive"
   )
 ```
 
-```{r setup-senate, message=FALSE, warning=FALSE}
+```{r setup-senate, message=FALSE, warning=FALSE, echo=FALSE}
 # Load senate district shapefile and filter for lakefront districts
 senate_districts <- load_district_shapefile(
   "data/raw/shapefiles/senate/senate_districts.shp",
