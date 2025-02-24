@@ -62,7 +62,7 @@ lakefront_crashes <- sf::st_transform(lakefront_crashes, 3857)
 crashes_with_district <- lakefront_crashes %>%
   filter(senate_district == "6")
 
-# 5) Define a bounding box for Chicago and the buffer distance (100 ft ~ 30.48 m)
+# 5) Define a bounding box for Chicago and the buffer distance (150 ft ~ 30.48 m)
 CHICAGO_BBOX <- c(-87.9401, 41.6445, -87.5239, 42.0230)
 BUFFER_DISTANCE_M <- 45.72
 
@@ -162,7 +162,7 @@ ggplot(fatalities_by_year, aes(x = year, y = total_fatalities)) +
     title = "Traffic Fatalities Along Lake Shore Drive in District 6",
     subtitle = "Annual count of traffic-related fatalities",
     caption = "Data: Chicago City Data Portal \"Traffic Crashes - Vision Zero Chicago Traffic Fatalities\" Retrieved Feb. 6, 2025
-Includes crashes reported within 100ft of DuSable Lake Shore Drive"
+Includes crashes reported within 150ft of DuSable Lake Shore Drive"
   ) +
   scale_x_continuous(
     breaks = seq(min_year, max_year, by = 1)
@@ -221,7 +221,7 @@ ggplot(injuries_by_year, aes(x = year, y = total_injuries)) +
     title = "Injuries From Crashes Along DuSable Lake Shore Drive in District 6",
     subtitle = "Total persons sustaining fatal, incapacitating, non-incapacitating, and possible injuries",
     caption = "Data: Chicago City Data Portal \"Traffic Crashes\" Retrieved Feb. 6, 2025
-Includes crashes reported within 100ft of DuSable Lake Shore Drive"
+Includes crashes reported within 150ft of DuSable Lake Shore Drive"
   ) +
   scale_x_continuous(
     breaks = seq(min_year, max_year, by = 1)
@@ -280,7 +280,7 @@ ggplot(incap_injuries_by_year, aes(x = year, y = total_incap_injuries)) +
     title = "Incapacitating Injuries Along DuSable Lake Shore Drive in District 6",
     subtitle = "Total persons sustaining incapacitating/serious injuries in a crash",
     caption = "Data: Chicago City Data Portal \"Traffic Crashes\" Retrieved Feb. 6, 2025
-Includes crashes reported within 100ft of DuSable Lake Shore Drive"
+Includes crashes reported within 150ft of DuSable Lake Shore Drive"
   ) +
   scale_x_continuous(
     breaks = seq(min_year, max_year, by = 1)
