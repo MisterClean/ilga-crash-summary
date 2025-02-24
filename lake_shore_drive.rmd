@@ -86,6 +86,16 @@ lakeshore_fatalities <- lakeshore_crashes %>%
   filter(fatality_count > 0)
 ```
 
+## About
+
+Data for this analysis is sourced from the following Chicago City Data
+Portal datasets:
+
+-   [Traffic
+    Crashes](https://data.cityofchicago.org/Transportation/Traffic-Crashes-Crashes/85ca-t3if/about_data)
+-   [Traffic Crashes - Vision Zero Chicago Traffic
+    Fatalities](https://data.cityofchicago.org/Transportation/Traffic-Crashes-Vision-Zero-Chicago-Traffic-Fatali/gzaz-isa6/data)
+
 ## Study Area Definition
 
 This analysis examines crashes within 150 feet of Lake Shore Drive.
@@ -323,7 +333,7 @@ Includes crashes reported within 150ft of DuSable Lake Shore Drive"
 
 ### Incapacitating Injuries
 
-```{r incap-injuries-chart, fig.width=8, fig.height=5, message=FALSE, warning=FALSE}
+```{r incap-injuries-chart, fig.width=8, fig.height=5, message=FALSE, warning=FALSE, echo=FALSE}
 # Prepare incapacitating injuries data
 incap_injuries_by_year <- lakeshore_crashes %>%
   st_drop_geometry() %>%

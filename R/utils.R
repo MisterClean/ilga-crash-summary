@@ -56,7 +56,7 @@ convert_to_sf <- function(data, lon = "LONGITUDE", lat = "LATITUDE", crs = 4326)
 }
 
 load_district_shapefile <- function(file_path, district_col = "DISTRICT", new_name = NULL) {
-  districts <- st_read(file_path)
+  districts <- st_read(file_path, quiet = TRUE)
   districts <- st_transform(districts, crs = 4326)
   
   if (!is.null(new_name)) {
